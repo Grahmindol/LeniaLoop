@@ -43,8 +43,13 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cu
 	$(NVCC) $(NVFLAGS) $< -o $@
 
 # --- Specific dependencies (optionnel si besoin précis) ---
-$(OBJ_DIR)/png_util.o : $(SRC_DIR)/png_util.c $(HEADER_DIR)/png_util.h
-$(OBJ_DIR)/life.o : $(SRC_DIR)/life.c $(HEADER_DIR)/life.h $(OBJ_DIR)/convolve.o
+$(OBJ_DIR)/cuda_fft_utils.o : $(SRC_DIR)/cuda_fft_utils.cu $(HEADER_DIR)/cuda_fft_utils.h $(HEADER_DIR)/config.h
+$(OBJ_DIR)/cuda_convolve_utils.o : $(SRC_DIR)/cuda_convolve_utils.cu $(HEADER_DIR)/cuda_convolve_utils.h $(OBJ_DIR)/cuda_fft_utils.o $(HEADER_DIR)/config.h
+$(OBJ_DIR)/cuda_life_update.o : $(SRC_DIR)/cuda_life_update.cu $(HEADER_DIR)/cuda_life_update.h $(OBJ_DIR)/cuda_convolve_utils.o $(HEADER_DIR)/config.h
+
+$(OBJ_DIR)/png_util.o : $(SRC_DIR)/png_util.c $(HEADER_DIR)/png_util.h $(HEADER_DIR)/config.h
+$(OBJ_DIR)/life.o : $(SRC_DIR)/life.c $(HEADER_DIR)/life.h $(OBJ_DIR)/cuda_life_update.o $(OBJ_DIR)/png_util.o $(HEADER_DIR)/config.h
+$(OBJ_DIR)/main.o : main.c $(OBJ_DIR)/life.o
 
 # --- Utility rules ---
 $(OBJ_DIR):

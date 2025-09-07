@@ -153,3 +153,4 @@ On atteint ainsi l’état de l’art actuel, mais les performances pour une sim
 - [Lenia — Biology of Artificial Life (Article)](https://arxiv.org/pdf/1812.05433)
 - [Generative Models for Periodicity Detection in
 Noisy Signals (Article)](https://arxiv.org/pdf/2201.07896)
+- [FFT on GPU](https://www.kennethmoreland.com/fftgpu/fftgpu.pdf)

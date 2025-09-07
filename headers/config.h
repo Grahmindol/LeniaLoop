@@ -1,42 +1,39 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#define BUFFER_NUMBER 2
+// 🔢 Buffer settings
+#define BUFFER_NUMBER 4
 
+// Uncomment to enable features
 //#define RANDOM_SEED 123456789  
-//#define IMG_PATH "roza.png"
-//#define DEBUG_LIFE_MOD
+//#define IMG_PATH "image.png"
 //#define TIMEUP_fUNC
 //#define RECORD_CSV
 //#define STEP_BY_STEP_MOD
-#define DISPLAY
 
-#define GENETIC 3000
+// 🌐 Grid parameters
+#define GRID_SIZE 1024        // Must be a power of 2
+#define RADIUS    (13*9)      // Neighborhood radius
+#define DELTA_T   0.01
 
+//#define REGION_SIZE 256       // Must be greater than 2*RADIUS + 1
 
-// Define grid dimensions using macros
-#define GRID_SIZE 128 // MUST BE a POWER OF 2
-#define RADIUS 13//(13*9) // 19*9
-#define DELTA_T 0.005
+// Derived constants
+#ifndef REGION_SIZE
+    #define FFT_SIZE_REG GRID_SIZE
+#else
+    #define SUB_REG_SIZE       (REGION_SIZE / 16)
+    #define REGION_NUMBER      (GRID_SIZE / REGION_SIZE)
+    #define SUB_REG_NUMBER     (GRID_SIZE / SUB_REG_SIZE)
+    #define SUB_REG_PER_REG    (REGION_SIZE / SUB_REG_SIZE)
+    #define FFT_SIZE_REG       (REGION_SIZE * 2)
 
-
-
-#define REGION_SIZE 64 // MUST BE GRATHER THAN 2*RADIUS+1
-#define SUB_REG_PER_REG 16
-
-
-#ifdef REGION_SIZE
-
-#define SUB_REG_SIZE (REGION_SIZE / SUB_REG_PER_REG)
-#define REGION_NUMBER (GRID_SIZE/REGION_SIZE)
-#define SUB_REG_NUMBER (GRID_SIZE/SUB_REG_SIZE)
-#define FFT_SIZE_REG (REGION_SIZE * 2)
-#else 
-#define FFT_SIZE_REG GRID_SIZE
+    #define DEBUG_LIFE_MOD
 #endif
 
-
+// ⏱ Timing macros
 #ifdef TIMEUP_fUNC
+
 #define CUDA_TIMING_BEGIN(label) \
     cudaEvent_t label##_start, label##_end; \
     cudaEventCreate(&label##_start); \
@@ -53,8 +50,10 @@
     cudaEventDestroy(label##_end)
 
 #define CPU_TIMING_BEGIN(label) clock_t label##_start = clock();
-#define CPU_TIMING_END(label) clock_t label##_end = clock(); \
-        printf(#label " time: %.3f ms\n", 1000.0 * (label##_end - label##_start) / CLOCKS_PER_SEC);
+#define CPU_TIMING_END(label) \
+    clock_t label##_end = clock(); \
+    printf(#label " time: %.3f ms\n", 1000.0 * (label##_end - label##_start) / CLOCKS_PER_SEC);
+
 #else
 #define CUDA_TIMING_BEGIN(label) 
 #define CUDA_TIMING_END(label)
@@ -62,9 +61,7 @@
 #define CPU_TIMING_END(label)
 #endif
 
-
-
-// 🔐 Macros pour vérification d’erreurs
+// 🔐 Error checking macros
 #define CHECK_CUDA(call) \
     do { \
         cudaError_t err = call; \

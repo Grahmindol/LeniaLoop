@@ -1,5 +1,5 @@
-
 #include "png_util.h"
+
 #ifdef IMG_PATH
 #include <stdlib.h>
 
@@ -37,10 +37,10 @@ unsigned char *read_png_file(const char *filename, int *width, int *height)
     png_init_io(png, fp);
     png_read_info(png, info);
 
-    *width = png_get_image_width(png, info);
-    *height = png_get_image_height(png, info);
+    *width       = png_get_image_width(png, info);
+    *height      = png_get_image_height(png, info);
     png_byte color_type = png_get_color_type(png, info);
-    png_byte bit_depth = png_get_bit_depth(png, info);
+    png_byte bit_depth  = png_get_bit_depth(png, info);
 
     // Adjust transformations for different PNG types
     png_set_strip_16(png);
@@ -64,7 +64,7 @@ unsigned char *read_png_file(const char *filename, int *width, int *height)
 
     int row_bytes = png_get_rowbytes(png, info);
     unsigned char *image_data = (unsigned char *)malloc(row_bytes * (*height));
-    png_bytep *row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * (*height));
+    png_bytep *row_pointers   = (png_bytep *)malloc(sizeof(png_bytep) * (*height));
 
     for (int y = 0; y < *height; y++) {
         // Invert rows so the image appears right-side up

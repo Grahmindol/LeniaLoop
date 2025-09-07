@@ -5,91 +5,118 @@
 #include "cuda_fft_utils.h"
 #include "config.h"
 
-
-// 📦 Plans FFT
+// ======================================================
+// 🔹 Plans FFT et texture kernel
+// ======================================================
 static cufftHandle fft_plan = 0;
 static cufftHandle ifft_plan = 0;
 static cudaTextureObject_t tex_kernel = 0;
 static int total_elements = FFT_SIZE_REG * FFT_SIZE_REG;
 
-void init_FFT_plans(int batch){
+// ======================================================
+// 📦 Initialisation et destruction des plans FFT
+// ======================================================
+
+/**
+ * @brief Initialise les plans FFT et IFFT pour un batch donné.
+ * 
+ * @param batch Nombre de matrices à traiter en batch.
+ */
+void init_FFT_plans(int batch) {
     int n[2] = { FFT_SIZE_REG, FFT_SIZE_REG };
     total_elements = FFT_SIZE_REG * FFT_SIZE_REG * batch;
 
-    if (fft_plan) {
-        cufftDestroy(fft_plan);
-        fft_plan = 0;
-    }
+    // Destruction des plans existants
+    if (fft_plan) { cufftDestroy(fft_plan); fft_plan = 0; }
+    if (ifft_plan) { cufftDestroy(ifft_plan); ifft_plan = 0; }
 
-    CHECK_CUFFT(
-        cufftPlanMany(&fft_plan,
-                    2, n,
-                    NULL, 1, FFT_SIZE_REG * FFT_SIZE_REG,
-                    NULL, 1, FFT_SIZE_REG * FFT_SIZE_REG,
-                    CUFFT_C2C,
-                    batch
-                )
-    );
+    // Création du plan FFT
+    CHECK_CUFFT(cufftPlanMany(&fft_plan,
+                               2, n,
+                               NULL, 1, FFT_SIZE_REG * FFT_SIZE_REG,
+                               NULL, 1, FFT_SIZE_REG * FFT_SIZE_REG,
+                               CUFFT_C2C,
+                               batch));
 
-    if (ifft_plan) {
-        cufftDestroy(ifft_plan);
-        ifft_plan = 0;
-    }
-                            
-    CHECK_CUFFT(
-        cufftPlanMany(&ifft_plan,
-                    2, n,
-                    NULL, 1, FFT_SIZE_REG * FFT_SIZE_REG,
-                    NULL, 1, FFT_SIZE_REG * FFT_SIZE_REG,
-                    CUFFT_C2C,
-                    batch
-                )
-    );
-    
+    // Création du plan IFFT
+    CHECK_CUFFT(cufftPlanMany(&ifft_plan,
+                               2, n,
+                               NULL, 1, FFT_SIZE_REG * FFT_SIZE_REG,
+                               NULL, 1, FFT_SIZE_REG * FFT_SIZE_REG,
+                               CUFFT_C2C,
+                               batch));
 }
 
+/**
+ * @brief Libère les plans FFT et IFFT.
+ */
 void destroy_FFT_plans() {
     if (fft_plan) { cufftDestroy(fft_plan); fft_plan = 0; }
     if (ifft_plan) { cufftDestroy(ifft_plan); ifft_plan = 0; }
 }
 
-void setup_kenel_texture(cufftComplex* d_broadcast_matrix){
-     free_kernel_texture();
+// ======================================================
+// 📦 Gestion de la texture CUDA pour le kernel
+// ======================================================
+
+/**
+ * @brief Crée la texture CUDA à partir d'une matrice kernel en device memory.
+ */
+void setup_kernel_texture(cufftComplex* d_broadcast_matrix) {
+    free_kernel_texture();
+
     cudaResourceDesc resDesc = {};
     resDesc.resType = cudaResourceTypeLinear;
     resDesc.res.linear.devPtr = d_broadcast_matrix;
     resDesc.res.linear.sizeInBytes = FFT_SIZE_REG * FFT_SIZE_REG * sizeof(cufftComplex);
     resDesc.res.linear.desc.f = cudaChannelFormatKindFloat;
-    resDesc.res.linear.desc.x = 32;  // x et y = 32 bits (float2 = 2 x float)
+    resDesc.res.linear.desc.x = 32;
     resDesc.res.linear.desc.y = 32;
     resDesc.res.linear.desc.z = 0;
     resDesc.res.linear.desc.w = 0;
 
     cudaTextureDesc texDesc = {};
-    texDesc.readMode = cudaReadModeElementType;  // on lit directement des float2
+    texDesc.readMode = cudaReadModeElementType;
 
     CHECK_CUDA(cudaCreateTextureObject(&tex_kernel, &resDesc, &texDesc, nullptr));
 }
 
-void free_kernel_texture(){
-    if(tex_kernel)
+/**
+ * @brief Libère la texture kernel.
+ */
+void free_kernel_texture() {
+    if (tex_kernel) {
         CHECK_CUDA(cudaDestroyTextureObject(tex_kernel));
+        tex_kernel = 0;
+    }
 }
 
+// ======================================================
+// 📦 FFT / IFFT
+// ======================================================
+
+/**
+ * @brief Exécute la FFT 2D sur un batch de matrices.
+ */
 void fft2d_batch(cufftComplex* d_data) {
     CHECK_CUFFT(cufftExecC2C(fft_plan, d_data, d_data, CUFFT_FORWARD));
 }
 
+/**
+ * @brief Normalisation post-IFFT (kernel CUDA).
+ */
 __global__ void normalize_ifft(cufftComplex* data, int total_size) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < total_size) {
-        data[idx].x /= FFT_SIZE_REG*FFT_SIZE_REG;
-        data[idx].y /= FFT_SIZE_REG*FFT_SIZE_REG;
+        data[idx].x /= FFT_SIZE_REG * FFT_SIZE_REG;
+        data[idx].y /= FFT_SIZE_REG * FFT_SIZE_REG;
     }
 }
 
+/**
+ * @brief Exécute l'IFFT 2D sur un batch et normalise le résultat.
+ */
 void ifft2d_batch(cufftComplex* d_data) {
-    
     CHECK_CUFFT(cufftExecC2C(ifft_plan, d_data, d_data, CUFFT_INVERSE));
 
     dim3 block(1024);
@@ -97,6 +124,10 @@ void ifft2d_batch(cufftComplex* d_data) {
     normalize_ifft<<<grid, block>>>(d_data, total_elements);
     CHECK_CUDA(cudaGetLastError());
 }
+
+// ======================================================
+// 📦 Multiplication complexe pointwise avec broadcasting
+// ======================================================
 
 __global__ void kernel_pointwise_batch_broadcast(
     cufftComplex* __restrict__ A,
@@ -109,40 +140,32 @@ __global__ void kernel_pointwise_batch_broadcast(
     int total_size = matrix_size * batch;
 
     if (idx < total_size) {
-        int local_idx = idx % matrix_size; // position dans une matrice n×n
+        int local_idx = idx % matrix_size;
         cufftComplex a = A[idx];
-        cufftComplex b = tex1Dfetch<cufftComplex>(tex_B, local_idx); // lecture via texture
+        cufftComplex b = tex1Dfetch<cufftComplex>(tex_B, local_idx);
 
-
+        // Multiplication complexe
         C[idx].x = a.x * b.x - a.y * b.y;
         C[idx].y = a.x * b.y + a.y * b.x;
     }
 }
 
 /**
- * @brief Performs pointwise complex multiplication with broadcasting.
- * 
- * This function computes the element-wise multiplication of two complex matrices, 
- * where the second matrix `d_broadcast_matrix` is broadcasted across the batch dimension of `d_input_batch`.
- * 
- * @param d_input_batch  Pointer to the input complex matrix batch [batch x n x n].
- * @param d_broadcast_matrix  Pointer to the 2D complex matrix [n x n] that is broadcasted to all batches.
- * @param d_output_batch  Pointer to the output complex matrix batch [batch x n x n].
- * @param n  The dimension of each square matrix (n x n).
- * @param batch_size  The number of matrices in the batch.
- * 
- * @note 1.246 ms during the last test.
+ * @brief Effectue la multiplication complexe pointwise avec broadcast sur un batch de matrices.
+ *
+ * @param d_input_batch      Batch de matrices complexes d'entrée [batch x FFT_SIZE_REG x FFT_SIZE_REG].
+ * @param d_output_batch     Batch de matrices complexes de sortie [batch x FFT_SIZE_REG x FFT_SIZE_REG].
+ * @param batch_size         Nombre de matrices dans le batch.
  */
 void complex_pointwise_broadcast(
-    cufftComplex* d_input_batch,      // [batch_size x FFT_SIZE_REG x FFT_SIZE_REG] Input batch of complex matrices
-    cufftComplex* d_output_batch,     // [batch_size x FFT_SIZE_REG x FFT_SIZE_REG] Output batch of complex matrices
-    int batch_size                    // The number of matrices in the batch
+    cufftComplex* d_input_batch,
+    cufftComplex* d_output_batch,
+    int batch_size
 ) {
-    int total_size = FFT_SIZE_REG * FFT_SIZE_REG * batch_size;  // Total number of elements across the entire batch
-    int block_size = 1024;                 // Number of threads per block
-    int num_blocks = (total_size + block_size - 1) / block_size;  // Calculate number of blocks
+    int total_size = FFT_SIZE_REG * FFT_SIZE_REG * batch_size;
+    int block_size = 1024;
+    int num_blocks = (total_size + block_size - 1) / block_size;
 
-    // Launch the kernel to compute the element-wise multiplication
     kernel_pointwise_batch_broadcast<<<num_blocks, block_size>>>(
         d_input_batch,
         d_output_batch,
@@ -150,9 +173,6 @@ void complex_pointwise_broadcast(
         batch_size
     );
 
-    // Check for CUDA errors and synchronize device
     CHECK_CUDA(cudaGetLastError());
     CHECK_CUDA(cudaDeviceSynchronize());
 }
-
-

@@ -1,127 +1,130 @@
 #include "cuda_life_update.h"
 #include "cuda_convolve_utils.h"
-#include "cuda_genetic_utils.h"
 #include "config.h"
-#include "csv_util.h"
-
 #include <cstdio>
 
-// Allouer la mémoire GPU pour les données
-static float* d_convolution;
-static float** d_pixels;
+// =========================================================
+//  GPU Buffers
+// =========================================================
+static float* d_convolution = nullptr;
+static float** d_pixels     = nullptr;
 static float* h_pixel_ptrs[BUFFER_NUMBER];
-static int* d_roi = NULL;
+static int* d_roi = nullptr;
 
+// =========================================================
+//  Device Helpers
+// =========================================================
 __device__ static inline float bell(float x, float m, float s) {
     return expf(-powf((x - m) / s, 2) / 2);
 }
 
 __device__ static inline float growth(float x) {
-    if (x > 0.3f) return -1;
-    return 2 * (bell(x, 0.15f, 0.015f)) - 1;
+    if (x > 0.3f) return -1.0f;
+    return 2.0f * bell(x, 0.15f, 0.015f) - 1.0f;
 }
 
 __device__ static inline float clip(float x) {
     return fmaxf(0.0f, fminf(1.0f, x));
 }
 
-
-
-
+// =========================================================
+//  Main Update Kernel
+// =========================================================
 __global__ void update_kernel(
     float* d_pixels_current,
     float* d_pixels_next,
-     float* d_convolution,
+    float* d_convolution,
     const int* d_roi
 ) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (x >= GRID_SIZE || y >= GRID_SIZE)
-        return;
-    
-    #ifndef DEBUG_LIFE_MOD
-    #ifdef REGION_SIZE
-    if (!d_roi[((x/SUB_REG_SIZE)*SUB_REG_NUMBER) + (y/SUB_REG_SIZE)])
-       return;
-    #endif
-    #endif
+    if (x >= GRID_SIZE || y >= GRID_SIZE) return;
 
-    int i = (y * GRID_SIZE + x) * 3;
-    
-
+    const int i = (y * GRID_SIZE + x) * 3;
     float live_neighbors = d_convolution[y * GRID_SIZE + x];
-    float newState = clip(d_pixels_current[i] + (growth(live_neighbors) * DELTA_T));
+    float new_state = clip(d_pixels_current[i] + growth(live_neighbors) * DELTA_T);
 
-    d_pixels_next[i]     = newState;
-    d_pixels_next[i + 1] = 0.0;
-    d_pixels_next[i + 2] = 0;
+    d_pixels_next[i] = new_state;
+
 #ifndef DEBUG_LIFE_MOD
     d_pixels_next[i + 2] = live_neighbors;
 #else
-    #ifdef REGION_SIZE
-    if(d_roi[((x/SUB_REG_SIZE)*SUB_REG_NUMBER) + (y/SUB_REG_SIZE)] & 0b0100)
-        d_pixels_next[i + 1] = 1.0;
-    else if (d_roi[((x/SUB_REG_SIZE)*SUB_REG_NUMBER) + (y/SUB_REG_SIZE)] & 0b1000)
-        d_pixels_next[i + 1] = 0.5;
-    #endif
-    if(live_neighbors != 0){
-        d_pixels_next[i + 2] = 0.5;
+    int roi_idx = (x / SUB_REG_SIZE) * SUB_REG_NUMBER + (y / SUB_REG_SIZE);
+
+    if (d_roi[roi_idx] & 0b0100)       d_pixels_next[i + 1] = 1.0f;
+    else if (d_roi[roi_idx] & 0b1000)  d_pixels_next[i + 1] = 0.5f;
+    else                               d_pixels_next[i + 1] = 0.0f;
+
+    if (live_neighbors != 0) {
+        d_pixels_next[i + 2] = 0.5f;
         d_convolution[y * GRID_SIZE + x] = 0;
+    } else {
+        d_pixels_next[i + 2] = 0.0f;
     }
 #endif
 }
 
-void init_cuda_update(float* h_pixels){
+// =========================================================
+//  Host Init / Destroy
+// =========================================================
+void init_cuda_update(float* h_pixels) {
+    // Allocate GPU buffers
+    cudaMalloc((void**)&d_pixels, sizeof(float*) * BUFFER_NUMBER);
 
-    cudaMalloc((void**)&d_pixels,sizeof(float*)*BUFFER_NUMBER);
-    for (size_t i = 0; i < BUFFER_NUMBER; i++) cudaMalloc((void**)&(h_pixel_ptrs[i]), sizeof(float) * GRID_SIZE * GRID_SIZE * 3);
-    // Copier le tableau de pointeurs du CPU vers le GPU
-    cudaMemcpy(d_pixels, h_pixel_ptrs, sizeof(float*) * BUFFER_NUMBER, cudaMemcpyHostToDevice);
+    for (size_t i = 0; i < BUFFER_NUMBER; i++) {
+        cudaMalloc((void**)&h_pixel_ptrs[i],
+                   sizeof(float) * GRID_SIZE * GRID_SIZE * 3);
+    }
 
-    cudaMemcpy(h_pixel_ptrs[0], h_pixels, sizeof(float) * GRID_SIZE * GRID_SIZE * 3, cudaMemcpyHostToDevice);
-    
+    // Copy host pointer array to device
+    cudaMemcpy(d_pixels, h_pixel_ptrs,
+               sizeof(float*) * BUFFER_NUMBER,
+               cudaMemcpyHostToDevice);
+
+    // Copy initial data into buffer[0]
+    cudaMemcpy(h_pixel_ptrs[0], h_pixels,
+               sizeof(float) * GRID_SIZE * GRID_SIZE * 3,
+               cudaMemcpyHostToDevice);
+
+    // Convolution buffer
     cudaMalloc((void**)&d_convolution, sizeof(float) * GRID_SIZE * GRID_SIZE);
-    #ifdef REGION_SIZE
+
+#ifdef REGION_SIZE
     cudaMalloc((void**)&d_roi, sizeof(int) * SUB_REG_NUMBER * SUB_REG_NUMBER);
     cudaMemset(d_roi, 1, sizeof(int) * SUB_REG_NUMBER * SUB_REG_NUMBER);
-    #endif
+#endif
+
     CHECK_CUDA(cudaGetLastError());
-
-    #ifdef GENETIC
-    init_genetic(h_pixel_ptrs[0]);
-    #endif
-
 }
 
-void destroy_cuda_update(){
-    for (size_t i = 0; i < BUFFER_NUMBER; i++) cudaFree(h_pixel_ptrs[i]);
+void destroy_cuda_update() {
+    for (size_t i = 0; i < BUFFER_NUMBER; i++) {
+        cudaFree(h_pixel_ptrs[i]);
+    }
     cudaFree(d_pixels);
     cudaFree(d_convolution);
-    #ifdef REGION_SIZE
-    cudaFree(d_roi);
-    #endif
 
-    #ifdef GENETIC
-    destroy_genetic();
-    #endif
+#ifdef REGION_SIZE
+    cudaFree(d_roi);
+#endif
 
     CHECK_CUDA(cudaGetLastError());
-
-
 }
-#ifdef REGION_SIZE
-__device__ int isActiveSubReg(int sx, int sy,float** datas, int frame){ //-----------------------------------------------------
-    int x_start = sx * SUB_REG_SIZE;
-    int x_end   = x_start + SUB_REG_SIZE;
-    int y_start = sy * SUB_REG_SIZE;
-    int y_end   = y_start + SUB_REG_SIZE;
 
-    for (int x = x_start; x < x_end; ++x) {
-        for (int y = y_start; y < y_end; ++y) {
+// =========================================================
+//  Region Handling (ROI)
+// =========================================================
+#ifdef REGION_SIZE
+
+__device__ int isActiveSubReg(int sx, int sy, float** datas, int frame) {
+    int x_start = sx * SUB_REG_SIZE;
+    int y_start = sy * SUB_REG_SIZE;
+
+    for (int x = x_start; x < x_start + SUB_REG_SIZE; ++x) {
+        for (int y = y_start; y < y_start + SUB_REG_SIZE; ++y) {
             int i = (y * GRID_SIZE + x) * 3;
-            if(datas[frame][i] > 0) return 1;
-            //if(abs(datas[frame][i] - datas[(frame-1 + BUFFER_NUMBER) % BUFFER_NUMBER][i])  > 1*datas[frame][i] ) return 1;
+            if (datas[frame][i] > 0) return 1;
         }
     }
     return 0;
@@ -134,20 +137,18 @@ __global__ void update_update_sub_region_interst(
 ) {
     int sx = blockIdx.x * blockDim.x + threadIdx.x;
     int sy = blockIdx.y * blockDim.y + threadIdx.y;
-    if (sx >= SUB_REG_NUMBER || sy >= SUB_REG_NUMBER)
-        return;
-    if(!d_roi[sx* SUB_REG_NUMBER + sy]) 
-        return;
+    if (sx >= SUB_REG_NUMBER || sy >= SUB_REG_NUMBER) return;
 
-    d_roi[sx*SUB_REG_NUMBER + sy] = isActiveSubReg(sx,sy, d_pixels, frame);
+    int idx = sx * SUB_REG_NUMBER + sy;
+    if (!d_roi[idx]) return;
 
+    d_roi[idx] = isActiveSubReg(sx, sy, d_pixels, frame);
 }
 
 __global__ void kernel_expand_sub_region_interst(int* d_roi) {
     int sx = blockIdx.x * blockDim.x + threadIdx.x;
     int sy = blockIdx.y * blockDim.y + threadIdx.y;
-    if (sx >= SUB_REG_NUMBER || sy >= SUB_REG_NUMBER)
-        return;
+    if (sx >= SUB_REG_NUMBER || sy >= SUB_REG_NUMBER) return;
 
     int idx = sx * SUB_REG_NUMBER + sy;
 
@@ -157,41 +158,45 @@ __global__ void kernel_expand_sub_region_interst(int* d_roi) {
                 int nx = (sx + dx + SUB_REG_NUMBER) % SUB_REG_NUMBER;
                 int ny = (sy + dy + SUB_REG_NUMBER) % SUB_REG_NUMBER;
                 int nidx = nx * SUB_REG_NUMBER + ny;
-                atomicOr(&d_roi[nidx], 0b10);  // 💥 en place, sans copie
+                atomicOr(&d_roi[nidx], 0b10);
             }
         }
     }
 }
 
-__global__ void kernel_propagate_sub_region_interst(int* d_roi,  int* d_changed) {
+__global__ void kernel_propagate_sub_region_interst(int* d_roi, int* d_changed) {
     int sx = blockIdx.x * blockDim.x + threadIdx.x;
     int sy = blockIdx.y * blockDim.y + threadIdx.y;
-    if (sx >= SUB_REG_NUMBER || sy >= SUB_REG_NUMBER)
-        return;
+    if (sx >= SUB_REG_NUMBER || sy >= SUB_REG_NUMBER) return;
 
     int idx = sx * SUB_REG_NUMBER + sy;
     if (d_roi[idx]) return;
-    int idx_right = (sx + 1) * SUB_REG_NUMBER + sy;
-    if (!(d_roi[idx_right])) return;
-    int idx_down = sx * SUB_REG_NUMBER + (sy + 1);
-    if (!(d_roi[idx_down])) return;
 
-    atomicOr(&d_roi[idx], 0b10); 
+    int idx_right = (sx + 1) * SUB_REG_NUMBER + sy;
+    int idx_down  = sx * SUB_REG_NUMBER + (sy + 1);
+
+    if (!d_roi[idx_right] || !d_roi[idx_down]) return;
+
+    atomicOr(&d_roi[idx], 0b10);
     atomicOr(d_changed, 0b10);
 }
 
-/**
- * @brief Setup 'sub_region_interst' using 'pixels[0] ' data's
- */
-static inline void setup_sub_region_interst(int *d_roi,float** d_datas, int frame) {
+static inline void setup_sub_region_interst(
+    int* d_roi, float** d_datas, int frame
+) {
     CPU_TIMING_BEGIN(setupSubRegionInterst);
+
     dim3 threadsPerBlock(32, 32);
     dim3 blocksPerGrid((SUB_REG_NUMBER + threadsPerBlock.x - 1) / threadsPerBlock.x,
-              (SUB_REG_NUMBER + threadsPerBlock.y - 1) / threadsPerBlock.y);
-    update_update_sub_region_interst<<<blocksPerGrid,threadsPerBlock>>>(d_datas, frame,d_roi);
+                       (SUB_REG_NUMBER + threadsPerBlock.y - 1) / threadsPerBlock.y);
+
+    update_update_sub_region_interst<<<blocksPerGrid, threadsPerBlock>>>(
+        d_datas, frame, d_roi
+    );
     CHECK_CUDA(cudaGetLastError());
     cudaDeviceSynchronize();
-    kernel_expand_sub_region_interst<<<blocksPerGrid,threadsPerBlock>>>(d_roi);
+
+    kernel_expand_sub_region_interst<<<blocksPerGrid, threadsPerBlock>>>(d_roi);
     CHECK_CUDA(cudaGetLastError());
     cudaDeviceSynchronize();
 
@@ -203,78 +208,66 @@ static inline void setup_sub_region_interst(int *d_roi,float** d_datas, int fram
         changed = 0;
         cudaMemcpy(d_changed, &changed, sizeof(int), cudaMemcpyHostToDevice);
 
-        kernel_propagate_sub_region_interst<<<blocksPerGrid, threadsPerBlock>>>(d_roi, d_changed);
-        cudaDeviceSynchronize();  // 🔒 Assure que le kernel est fini
+        kernel_propagate_sub_region_interst<<<blocksPerGrid, threadsPerBlock>>>(
+            d_roi, d_changed
+        );
+        cudaDeviceSynchronize();
 
         cudaMemcpy(&changed, d_changed, sizeof(int), cudaMemcpyDeviceToHost);
     } while (changed);
-    cudaFree(d_changed);
 
+    cudaFree(d_changed);
     CPU_TIMING_END(setupSubRegionInterst);
 }
+#endif // REGION_SIZE
 
-#endif
+// =========================================================
+//  Main Update Function
+// =========================================================
+void update_life_gpu(int current, float* h_pixels_result) {
+    static int iter = 0;
 
-void update_life_gpu(
-    int current,
-    float* h_pixels_result
-) {
-    
+    // --- Convolution
+    CPU_TIMING_BEGIN(convolution_cpu);
+    CUDA_TIMING_BEGIN(convolution_cuda);
 
-    RECORD_CPU_TIMING_BEGIN(convolution_cuda);
+    convolve2d_fft_circular(h_pixel_ptrs[current], d_roi, d_convolution, NULL);
 
-    int connex_reg = convolve2d_fft_circular(h_pixel_ptrs[current], d_roi, d_convolution, NULL);
-    RECORD_CPU_TIMING_END(convolution_cuda);
+    CUDA_TIMING_END(convolution_cuda);
+    CPU_TIMING_END(convolution_cpu);
 
+    // --- Update Pixels
     CUDA_TIMING_BEGIN(updatePixels);
-    RECORD_CPU_TIMING_BEGIN(update_state);
 
     dim3 threadsPerBlock(32, 32);
     dim3 blocksPerGrid((GRID_SIZE + threadsPerBlock.x - 1) / threadsPerBlock.x,
-              (GRID_SIZE + threadsPerBlock.y - 1) / threadsPerBlock.y);
+                       (GRID_SIZE + threadsPerBlock.y - 1) / threadsPerBlock.y);
 
     update_kernel<<<blocksPerGrid, threadsPerBlock>>>(
         h_pixel_ptrs[current],
-        h_pixel_ptrs[(current+1)%BUFFER_NUMBER],
+        h_pixel_ptrs[(current + 1) % BUFFER_NUMBER],
         d_convolution,
         d_roi
     );
-
     cudaDeviceSynchronize();
-    RECORD_CPU_TIMING_END(update_state);
-    // Copier les résultats de l GPU vers l'hôte
-    #ifdef DISPLAY
-    #ifndef STEP_BY_STEP_MOD
-    static int iter = 0;
-    if(iter > 20){
-    #endif
-    cudaMemcpy(h_pixels_result, h_pixel_ptrs[(current)%BUFFER_NUMBER], sizeof(float) * GRID_SIZE * GRID_SIZE * 3, cudaMemcpyDeviceToHost);
-    iter = 0;
-    #ifndef STEP_BY_STEP_MOD
+
+    // Copy back results occasionally
+#ifndef STEP_BY_STEP_MOD
+    if (iter > 20) {
+#endif
+        cudaMemcpy(h_pixels_result,
+                   h_pixel_ptrs[current],
+                   sizeof(float) * GRID_SIZE * GRID_SIZE * 3,
+                   cudaMemcpyDeviceToHost);
+        iter = 0;
+#ifndef STEP_BY_STEP_MOD
     }
+#endif
+
+#ifdef REGION_SIZE
+    setup_sub_region_interst(d_roi, (float**)d_pixels, (current + 1) % BUFFER_NUMBER);
+#endif
+
+    CUDA_TIMING_END(updatePixels);
     iter++;
-    #endif
-    #endif
-
-
-    #ifdef GENETIC
-    static int genetic_iter = 0;
-    if(genetic_iter > GENETIC){
-    change_candidate((float*)h_pixel_ptrs[(current+1)%BUFFER_NUMBER], connex_reg);
-    #ifdef SUB_REG_NUMBER
-    cudaMemset(d_roi, 1, sizeof(int) * SUB_REG_NUMBER * SUB_REG_NUMBER);
-    #endif
-    genetic_iter = 0;
-    }
-    genetic_iter++;
-    #endif
-
-    #ifdef REGION_SIZE
-    RECORD_CPU_TIMING_BEGIN(sub_roi_compute);
-
-    setup_sub_region_interst(d_roi,(float**)d_pixels,(current+1)%BUFFER_NUMBER);
-    
-    RECORD_CPU_TIMING_END(sub_roi_compute);
-    #endif
-    
 }

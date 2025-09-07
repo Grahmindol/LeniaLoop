@@ -1,10 +1,9 @@
 #include "config.h"
 
-#ifndef CSV_UTIL_H
-#define CSV_UTIL_H
-
 #ifdef RECORD_CSV
 
+#ifndef CSV_UTIL_H
+#define CSV_UTIL_H
 
 #define MAX_ITERATION 1000
 
@@ -48,11 +47,9 @@ void save_to_csv(const char *filename, int iteration,float data) {
 #define RECORD_CPU_TIMING_END(label) clock_t label##_end = clock(); \
     save_to_csv(#label,-1,1000.0 * (label##_end - label##_start) / CLOCKS_PER_SEC);
 
-
+#endif
 
 #else
 #define RECORD_CPU_TIMING_BEGIN(label)
 #define RECORD_CPU_TIMING_END(label)
-#endif
-
 #endif

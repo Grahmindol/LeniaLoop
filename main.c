@@ -61,9 +61,7 @@ void looply(int value)
 {
     life_update_frame(value);
     displayFPS();
-    #ifdef DISPLAY
     glutPostRedisplay();
-    #endif
     glutTimerFunc(0, looply, (value+1)%BUFFER_NUMBER);
 }
 
