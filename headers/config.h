@@ -10,11 +10,15 @@
 //#define TIMEUP_fUNC
 //#define RECORD_CSV
 //#define STEP_BY_STEP_MOD
+#define DISPLAY 0
+
+//#define FFT_OPTI_ENABLE
+
 
 // 🌐 Grid parameters
-#define GRID_SIZE 1024        // Must be a power of 2
-#define RADIUS    (13*9)      // Neighborhood radius
-#define DELTA_T   0.01
+#define GRID_SIZE 512        // Must be a power of 2
+#define RADIUS    (13*6)      // Neighborhood radius
+#define DELTA_T   0.1
 
 //#define REGION_SIZE 256       // Must be greater than 2*RADIUS + 1
 
@@ -34,6 +38,9 @@
 // ⏱ Timing macros
 #ifdef TIMEUP_fUNC
 
+#include <stdio.h>
+#include <time.h>
+
 #define CUDA_TIMING_BEGIN(label) \
     cudaEvent_t label##_start, label##_end; \
     cudaEventCreate(&label##_start); \
@@ -45,14 +52,30 @@
     cudaEventSynchronize(label##_end); \
     float label##_ms = 0; \
     cudaEventElapsedTime(&label##_ms, label##_start, label##_end); \
-    printf("[GPU] " #label " took %.3f ms\n", label##_ms); \
+    /*printf("[GPU] " #label " took %.3f ms\n", label##_ms);*/ \
+    { \
+        FILE *f = fopen("csv/" #label "_times.csv", "a"); \
+        if (f) { \
+            fprintf(f, "%.3f\n", label##_ms); \
+            fclose(f); \
+        } \
+    } \
     cudaEventDestroy(label##_start); \
     cudaEventDestroy(label##_end)
 
 #define CPU_TIMING_BEGIN(label) clock_t label##_start = clock();
+
 #define CPU_TIMING_END(label) \
     clock_t label##_end = clock(); \
-    printf(#label " time: %.3f ms\n", 1000.0 * (label##_end - label##_start) / CLOCKS_PER_SEC);
+    double label##_ms = 1000.0 * (label##_end - label##_start) / CLOCKS_PER_SEC; \
+    /*printf("[CPU] " #label " took %.3f ms\n", label##_ms);*/ \
+    { \
+        FILE *f = fopen("csv/" #label "_times.csv", "a"); \
+        if (f) { \
+            fprintf(f, "%.3f\n", label##_ms); \
+            fclose(f); \
+        } \
+    }
 
 #else
 #define CUDA_TIMING_BEGIN(label) 

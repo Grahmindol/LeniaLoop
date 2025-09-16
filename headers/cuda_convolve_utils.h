@@ -37,7 +37,7 @@ void precompute_kernelFFT(const float *kernel, int size);
 void destroy_convolve_buffer(void);
 
 /**
- * @brief Performs 2D circular convolution of an image using FFT.
+ * @brief Performs 2D circular convolution of an image (using FFT. if enabled)
  *
  * @param d_image Pointer to the input image on device (flattened float array).
  * @param h_sub_region_interst Pointer to host array defining sub-region of interest.
@@ -45,7 +45,7 @@ void destroy_convolve_buffer(void);
  * @param debug Optional pointer for storing debug info (can be NULL).
  * @return An integer status code (0 if success, non-zero on error).
  */
-int convolve2d_fft_circular(const float* d_image, int* h_sub_region_interst, float* d_result_out, float* debug);
+int convolve2d_circular(const float* d_image, int* h_sub_region_interst, float* d_result_out, float* debug);
 
 #ifdef __cplusplus
 }

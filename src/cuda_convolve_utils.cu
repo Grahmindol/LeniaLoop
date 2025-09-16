@@ -41,7 +41,7 @@ static int g_batch_count  = 0;
 __device__ cufftComplex get_value_device(const float* img, int x, int y) {
     int xi = x & (GRID_SIZE - 1);   // wrap-around modulo GRID_SIZE
     int yi = y & (GRID_SIZE - 1);
-    int idx = ((xi * GRID_SIZE) | yi) * 3; // pixel index, 3 channels
+    int idx = ((xi * GRID_SIZE) + yi) * 3; // pixel index, 3 channels
 
     return (cufftComplex){ img[idx], 0.0f };
 }
@@ -110,10 +110,11 @@ void precompute_kernelFFT(const float* kernel, int size) {
     CHECK_CUDA(cudaMemcpy(d_KernelFFT_reg, hostBuf, fft_elems * sizeof(cufftComplex), cudaMemcpyHostToDevice));
 
     // init plans, fft, et setup (fonctions externes)
+#ifdef FFT_OPTI_ENABLE // si on optimise pas via FFT alors on ne calcul pas la fft et on garde le spatial
     init_FFT_plans(1);
     fft2d_batch(d_KernelFFT_reg);
     setup_kernel_texture(d_KernelFFT_reg);
-
+#endif
     free(hostBuf);
 }
 
@@ -159,7 +160,7 @@ void destroy_convolve_buffer() {
 
     if (d_imageFFT_reg_batchs)  { CHECK_CUDA(cudaFree(d_imageFFT_reg_batchs));  d_imageFFT_reg_batchs  = NULL; }
     if (d_resultFFT_reg_batchs) { CHECK_CUDA(cudaFree(d_resultFFT_reg_batchs)); d_resultFFT_reg_batchs = NULL; }
-    if (d_KernelFFT_reg)        { CHECK_CUDA(cudaFree(d_KernelFFT_reg));       d_KernelFFT_reg       = NULL; }
+    if (d_KernelFFT_reg)        { CHECK_CUDA(cudaFree(d_KernelFFT_reg));       d_KernelFFT_reg         = NULL; }
 }
 
 // ========================================================
@@ -365,10 +366,10 @@ static inline void copy_image(
 }
 #endif
 
-#ifdef REGION_SIZE
 // ========================================================
 // Section 4 — Détection et masquage des régions actives
 // ========================================================
+#ifdef REGION_SIZE
 
 #define FLAG_ACTIVE  0b0011
 #define FLAG_CORNER  0b0100
@@ -518,6 +519,8 @@ int compute_batch_positions(int* d_sub_roi) {
 int convolve2d_fft_circular(const float* d_image, int* d_roi, float* d_result_out, float* debug) {
 
 #ifdef REGION_SIZE
+
+CUDA_TIMING_BEGIN(fft2d);
     // ----------------------------------------------------
     // 1️⃣ Calcul des positions de batchs
     // ----------------------------------------------------
@@ -535,17 +538,20 @@ int convolve2d_fft_circular(const float* d_image, int* d_roi, float* d_result_ou
     // 2️⃣ Copie de l'image vers le buffer batch avec padding
     // ----------------------------------------------------
     copy_region_buffer_with_padding(d_imageFFT_reg_batchs, d_image);
+CUDA_TIMING_END(fft2d);
 
+CUDA_TIMING_BEGIN(pointwise);
     // ----------------------------------------------------
     // 3️⃣ FFT sur tous les batchs
     // ----------------------------------------------------
     fft2d_batch(d_imageFFT_reg_batchs);
-
+CUDA_TIMING_END(pointwise);
     // ----------------------------------------------------
     // 4️⃣ Pointwise multiplication avec le kernel FFT
     // ----------------------------------------------------
     complex_pointwise_broadcast(d_imageFFT_reg_batchs, d_resultFFT_reg_batchs, g_batch_count);
 
+CUDA_TIMING_BEGIN(ifft2d);
     // ----------------------------------------------------
     // 5️⃣ IFFT sur tous les batchs
     // ----------------------------------------------------
@@ -555,19 +561,82 @@ int convolve2d_fft_circular(const float* d_image, int* d_roi, float* d_result_ou
     // 6️⃣ Retrait du padding et recentrage
     // ----------------------------------------------------
     remove_padding_and_center_shift_cuda(d_resultFFT_reg_batchs, d_result_out);
-
+CUDA_TIMING_END(ifft2d);
     return connex_reg;
 
 #else
     // ----------------------------------------------------
     // Cas simple : pas de REGION_SIZE
     // ----------------------------------------------------
+CUDA_TIMING_BEGIN(fft2d);
     copy_image(d_imageFFT_reg_batchs, d_image);
     fft2d_batch(d_imageFFT_reg_batchs);
+CUDA_TIMING_END(fft2d);
+
+CUDA_TIMING_BEGIN(pointwise);
     complex_pointwise_broadcast(d_imageFFT_reg_batchs, d_resultFFT_reg_batchs, 1);
+CUDA_TIMING_END(pointwise);
+
+CUDA_TIMING_BEGIN(ifft2d);
     ifft2d_batch(d_resultFFT_reg_batchs);
     center_shift_cuda(d_resultFFT_reg_batchs, d_result_out);
+CUDA_TIMING_END(ifft2d);
     CHECK_CUDA(cudaGetLastError());
     return 1;
+#endif
+}
+
+// ========================================================
+// Section 5 — Vertion encore plus simple sans FFT
+// ========================================================
+
+__global__ void spatial_convolution_kernel(
+    const float* __restrict__ image,
+    float* __restrict__ result,const cufftComplex* d_Kernel
+) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= GRID_SIZE || y >= GRID_SIZE) return;
+
+    float sum = 0.0f;
+
+    for (int ky = -RADIUS; ky <= RADIUS; ++ky) {
+        for (int kx = -RADIUS; kx <= RADIUS; ++kx) {
+            float val = get_value_device(image, x + kx, y + ky).x; // canal R
+            float coeff = d_Kernel[(ky + (FFT_SIZE_REG / 2)) * FFT_SIZE_REG + (kx + (FFT_SIZE_REG / 2))].x;
+            sum += val * coeff;
+        }
+    }
+    result[x * GRID_SIZE + y] = sum;
+}
+
+int convolve2d_circular(const float* d_image, int* d_roi, float* d_result_out, float* debug) {
+
+#ifdef FFT_OPTI_ENABLE
+    // ======================
+    // 🔹 Version FFT
+    // ======================
+    return convolve2d_fft_circular(d_image, d_roi, d_result_out, debug);
+
+#else
+    // ======================
+    // 🔹 Version kernel spatial
+    // ======================
+
+    dim3 threadsPerBlock(32, 32);
+    dim3 blocksPerGrid(
+        (GRID_SIZE + threadsPerBlock.x - 1) / threadsPerBlock.x,
+        (GRID_SIZE + threadsPerBlock.y - 1) / threadsPerBlock.y
+    );
+
+    // Kernel spatial simple : convolution directe
+    spatial_convolution_kernel<<<blocksPerGrid, threadsPerBlock>>>(
+        d_image, d_result_out,d_KernelFFT_reg
+    );
+
+    CHECK_CUDA(cudaGetLastError());
+    CHECK_CUDA(cudaDeviceSynchronize());
+
+    return 1; // (ou nombre de régions traitées si REGION_SIZE)
 #endif
 }

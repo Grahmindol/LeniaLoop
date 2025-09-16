@@ -5,7 +5,7 @@ NVCC = nvcc
 # --- Flags ---
 CFLAGS = -c -g -fopenmp -I$(HEADER_DIR)
 NVFLAGS = -c -O4 -arch=sm_89 -I$(HEADER_DIR)
-LDFLAGS = -lm -lGL -lGLU -lglut -lpng -fopenmp -lcufft -lcudart
+LDFLAGS = -lm -lGL -lGLU -lglut -lpng -fopenmp -lcufft -lcudart -flto
 
 # --- Directories ---
 SRC_DIR = src

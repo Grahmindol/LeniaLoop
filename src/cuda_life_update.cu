@@ -228,13 +228,11 @@ void update_life_gpu(int current, float* h_pixels_result) {
     static int iter = 0;
 
     // --- Convolution
-    CPU_TIMING_BEGIN(convolution_cpu);
-    CUDA_TIMING_BEGIN(convolution_cuda);
+CUDA_TIMING_BEGIN(convolution_cuda);
 
-    convolve2d_fft_circular(h_pixel_ptrs[current], d_roi, d_convolution, NULL);
+    convolve2d_circular(h_pixel_ptrs[current], d_roi, d_convolution, NULL);
 
-    CUDA_TIMING_END(convolution_cuda);
-    CPU_TIMING_END(convolution_cpu);
+CUDA_TIMING_END(convolution_cuda);
 
     // --- Update Pixels
     CUDA_TIMING_BEGIN(updatePixels);
@@ -252,8 +250,9 @@ void update_life_gpu(int current, float* h_pixels_result) {
     cudaDeviceSynchronize();
 
     // Copy back results occasionally
+#ifdef DISPLAY
 #ifndef STEP_BY_STEP_MOD
-    if (iter > 20) {
+    if (iter > DISPLAY) {
 #endif
         cudaMemcpy(h_pixels_result,
                    h_pixel_ptrs[current],
@@ -262,6 +261,7 @@ void update_life_gpu(int current, float* h_pixels_result) {
         iter = 0;
 #ifndef STEP_BY_STEP_MOD
     }
+#endif
 #endif
 
 #ifdef REGION_SIZE

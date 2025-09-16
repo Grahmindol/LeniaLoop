@@ -8,7 +8,6 @@
 
 #include "cuda_life_update.h"
 #include "png_util.h"
-#include "csv_util.h"
 
 // ======================================================
 // 🔹 Variables globales

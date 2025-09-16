@@ -116,10 +116,149 @@ Absurdemment lente, même pour des simulations très petites.
 
 Le gain est considérable : on peut alors augmenter la résolution de la simulation par un facteur 16 tout en conservant la même fréquence de rafraîchissement.
 
+
+#### Algorithme de Cooley–Tukey (FFT)
+
+la **Transformée de Fourier Discrète (DFT)** peut être vue comme une simple évaluation de polynômes.  
+
+Si l’on considère les données d’entrée comme les coefficients d’un polynôme :
+
+$$
+P(X) = \sum_{k=0}^{n-1} a_k X^k ,
+$$
+
+alors calculer la DFT revient à évaluer ce polynôme en $n$ points particuliers :  
+les **racines $n$-ièmes de l’unité**
+
+$$
+\omega_n^j = e^{-\tfrac{2 \pi i}{n} j}, \quad j = 0,1,\dots,n-1.
+$$
+
+Pour un calcul efficace on utilise la méthode **diviser pour régner**.  
+
+En effet, on s’aperçoit que pour obtenir les valeurs en $n$ points d’un polynôme, il suffit de séparer en **parties paire et impaire** :
+
+$$
+P(X) = \sum_{k=0}^{n-1} a_k X^k 
+= P_\text{pair}(X^2) + X \cdot P_\text{impair}(X^2),
+$$
+
+où :  
+- $P_\text{pair}(X) = a_0 + a_2 X + a_4 X^2 + \cdots$  
+- $P_\text{impair}(X) = a_1 + a_3 X + a_5 X^2 + \cdots$
+
+Ainsi, au lieu d’évaluer $P(X)$ en $n$ points, il suffit d’évaluer $P_\text{pair}$ et $P_\text{impair}$ en $n/2$ points chacun.  
+Ces points sont reliés par des symétries : les racines de l’unité viennent par **paires conjuguées** ($\omega_n^j$ et $-\omega_n^j$).  
+
+On obtient donc une récurrence :
+
+$$
+T(n) = 2\,T\!\left(\tfrac{n}{2}\right) + c n, \qquad T(1) = d.
+$$
+
+Écrivons la récurrence sur plusieurs niveaux :
+
+$$
+\begin{aligned}
+T(n) &= 2\! \left( 2\,T\!\left(\tfrac{n}{2^2}\right)+c\tfrac{n}{2} \right) + c n
+     = 2^2 T\!\left(\tfrac{n}{2^2}\right) + c n\left(1+\tfrac{1}{2}\right),\\
+T(n) &= 2^2\! \left( 2\,T\!\left(\tfrac{n}{2^3}\right)+c\tfrac{n}{2^2} \right) + c n\left(1+\tfrac{1}{2}\right)
+     = 2^3 T\!\left(\tfrac{n}{2^3}\right) + c n\left(1+\tfrac{1}{2}+\tfrac{1}{2^2}\right).
+\end{aligned}
+$$
+
+Après $k$ niveaux on obtient :
+
+$$
+T(n) = 2^k T\!\left(\tfrac{n}{2^k}\right) + c n\sum_{i=0}^{k-1} \tfrac{1}{2^i}.
+$$
+
+Choisissons $k$ tel que $\tfrac{n}{2^k}=1$, donc $k=\log_2 n$.  
+Alors $2^k = n$ et $T\!\left(\tfrac{n}{2^k}\right)=T(1)=d$. D'où :
+
+$$
+T(n) = n\cdot d + c n\sum_{i=0}^{\log_2 n -1} \tfrac{1}{2^i}.
+$$
+
+La somme géométrique vaut :
+
+$$
+\sum_{i=0}^{\log_2 n -1} \tfrac{1}{2^i} = \frac{1 - \tfrac{1}{2^{\log_2 n}}}{1-\tfrac{1}{2}}
+= 2\left(1-\tfrac{1}{n}\right).
+$$
+
+Donc :
+
+$$
+T(n) = n d + c n \cdot 2\left(1-\tfrac{1}{n}\right)
+     = n d + 2c n - 2c.
+$$
+
+Pour les grandes valeurs de $n$ (termes dominants) :
+
+$$
+T(n) = \Theta(n \log n).
+$$
+
+Ainsi la solution de :
+
+$$
+T(n)=2T(n/2)+\Theta(n)
+$$
+
+est bien :
+
+$$
+T(n)=\Theta(n\log n). \quad 🚀
+$$
+
+On obtient ainsi une complexité optimale en $O(n \log n)$ pour passer des coefficients aux valeurs et inversement.
+
+---
+
 #### Convolution
 
-Pour effectuer les convolutions, on utilise l’algorithme FFT 2D qui permet de les calculer en $O(n^2 \log n)$ au lieu de $O(n^4)$ pour une version naïve.  
-(explication détaillée à ajouter)
+Pour effectuer les convolutions, on utilise l'**algorithme FFT 2D** qui est définie comme une FFT selon un axe puis une FFT selon l'autre axe, d’où une complexité en $O(n^2 \log n)$. 
+
+En effet, soit $A$ et $B$ deux polynômes, et soit $C = A \times B$ leur produit. On remarque que les coefficients de $C$ vérifient :
+
+$$
+c_k = \sum_{i+j=k} a_i \cdot b_j
+$$
+
+On voit donc qu'il s'agit exactement de la **convolution** des coefficients $a_i$ et $b_j$.
+
+Or, par les polynômes d'interpolation de Lagrange, on sait qu'un polynôme de degré $n$ peut être représenté par ses **valeurs en $n$ points distincts**.  
+
+Ainsi, pour multiplier $A$ et $B$ :  
+1. On évalue $A$ en $n$ points $(x_0, x_1, \dots, x_{n-1})$ → valeurs $A(x_i)$  
+2. On évalue $B$ aux mêmes points → valeurs $B(x_i)$  
+3. On multiplie **point par point** :  
+   $$
+   C(x_i) = A(x_i) \cdot B(x_i)
+   $$  
+4. On retrouve ensuite les coefficients de $C$ via l'interpolation de Lagrange.
+
+💡 L'idée clé : la FFT permet de transformer la **convolution des coefficients** en une **multiplication point par point** très rapide.
+
+---
+
+Si l'on résout directement le système d'interpolation, la complexité est trop élevée ($O(n^2)$ par étape).  
+
+Pour y remédier, on **choisit astucieusement les points** d'évaluation : les **racines de l'unité**, ce qui permet d'utiliser la **FFT**.
+
+En effet la FFT n’est rien d’autre qu’une méthode efficace pour obtenir les $n$ valeurs  
+
+$$
+P(\omega_n^j), \quad j = 0,1,\dots,n-1,
+$$
+
+c’est-à-dire l’évaluation simultanée du polynôme $P$ en $n$ points bien choisis.
+
+Pour faire une convolution, on a deux FFT 2D à effectuer et une multiplication point par point en $O(n^2)$.  
+On obtient donc la convolution en $O(n^2 \log n)$ également.  
+
+👉 Contre $O(n^4)$ pour la version naïve.
 
 ### Version parallélisée sur GPU
 
@@ -128,12 +267,6 @@ Pour effectuer les convolutions, on utilise l’algorithme FFT 2D qui permet de 
 Pour qu’une cellule passe à un état non nul (vivant), elle doit avoir au moins une voisine active dans son voisinage. Or, en pratique, de nombreuses cellules sont recalculées inutilement.
 
 Une solution possible consiste à ne calculer que les cellules susceptibles d’être modifiées à l’état suivant.
-
-#### Région d’intérêt ← À FAIRE !!!
-
-Sur une grande zone vide, la simulation devrait être rapide. On va donc définir des zones d’intérêt.
-
-Ces zones seront de taille $s$, une puissance de deux (pour optimiser le calcul), et suffisamment grandes pour permettre la convolution sans effets de bord. Pour cela, on ajoute la taille du rayon du noyau sur chaque côté avant d’effectuer la convolution, puis on récupère uniquement les valeurs intéressantes.
 
 #### Utilisation de CUDA pour paralléliser
 
@@ -151,6 +284,5 @@ On atteint ainsi l’état de l’art actuel, mais les performances pour une sim
 - [Tutoriel Lenia initial](https://colab.research.google.com/github/OpenLenia/Lenia-Tutorial/blob/main/Tutorial_From_Conway_to_Lenia.ipynb#scrollTo=ycvjBlAOt6tK)  
 - [Lenia and Expanded Universe (Article)](https://arxiv.org/pdf/2005.03742)  
 - [Lenia — Biology of Artificial Life (Article)](https://arxiv.org/pdf/1812.05433)
-- [Generative Models for Periodicity Detection in
-Noisy Signals (Article)](https://arxiv.org/pdf/2201.07896)
+- [Generative Models for Periodicity Detection in Noisy Signals (Article)](https://arxiv.org/pdf/2201.07896)
 - [FFT on GPU](https://www.kennethmoreland.com/fftgpu/fftgpu.pdf)
