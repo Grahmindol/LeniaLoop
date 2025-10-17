@@ -10,15 +10,15 @@
 //#define TIMEUP_fUNC
 //#define RECORD_CSV
 //#define STEP_BY_STEP_MOD
-#define DISPLAY 0
+#define DISPLAY 10
 
-//#define FFT_OPTI_ENABLE
+#define FFT_OPTI_ENABLE
 
 
 // 🌐 Grid parameters
-#define GRID_SIZE 512        // Must be a power of 2
-#define RADIUS    (13*6)      // Neighborhood radius
-#define DELTA_T   0.1
+#define GRID_SIZE 1024        // Must be a power of 2
+#define RADIUS    (13*8)      // Neighborhood radius
+#define DELTA_T   0.01
 
 //#define REGION_SIZE 256       // Must be greater than 2*RADIUS + 1
 

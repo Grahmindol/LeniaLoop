@@ -306,8 +306,8 @@ __global__ void center_shift_kernel(
     int shifted_idx = shift_i * FFT_SIZE_REG + shift_j;
 
     float val = src[shifted_idx].x;
-    int out_x = (j + GRID_SIZE) % GRID_SIZE;
-    int out_y = (i + GRID_SIZE) % GRID_SIZE;
+    int out_x = (j+1 + GRID_SIZE) % GRID_SIZE; // ici on se decal de (1,1) mais on ne sait pas pourquoi ....
+    int out_y = (i+1 + GRID_SIZE) % GRID_SIZE;
 
     result_out[out_y + out_x * GRID_SIZE] = val;
 }
