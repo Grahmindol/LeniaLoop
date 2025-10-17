@@ -282,6 +282,9 @@ On atteint ainsi l’état de l’art actuel, mais les performances pour une sim
 
 - [Vidéo Science Étonnante](https://www.youtube.com/watch?v=PlzV4aJ7iMI)  
 - [Tutoriel Lenia initial](https://colab.research.google.com/github/OpenLenia/Lenia-Tutorial/blob/main/Tutorial_From_Conway_to_Lenia.ipynb#scrollTo=ycvjBlAOt6tK)  
+
+- [The fantastic combinations of John Conway's new solitaire game "life"](https://web.stanford.edu/class/sts145/Library/life.pdf)
+- [Generalization of Conway's "Game of Life" to a continuous domain - SmoothLife](https://arxiv.org/pdf/1111.1567)
 - [Lenia and Expanded Universe (Article)](https://arxiv.org/pdf/2005.03742)  
 - [Lenia — Biology of Artificial Life (Article)](https://arxiv.org/pdf/1812.05433)
 - [Generative Models for Periodicity Detection in Noisy Signals (Article)](https://arxiv.org/pdf/2201.07896)
