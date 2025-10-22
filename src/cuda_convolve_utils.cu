@@ -598,16 +598,16 @@ __global__ void spatial_convolution_kernel(
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     if (x >= GRID_SIZE || y >= GRID_SIZE) return;
 
-    float sum = 0.0f;
+    double sum = 0.0;
 
     for (int ky = -RADIUS; ky <= RADIUS; ++ky) {
         for (int kx = -RADIUS; kx <= RADIUS; ++kx) {
             float val = get_value_device(image, x + kx, y + ky).x; // canal R
-            float coeff = d_Kernel[(ky + (FFT_SIZE_REG / 2)) * FFT_SIZE_REG + (kx + (FFT_SIZE_REG / 2))].x;
+            float coeff = d_Kernel[(ky-1 + (FFT_SIZE_REG / 2)) * FFT_SIZE_REG + (kx-1 + (FFT_SIZE_REG / 2))].x;
             sum += val * coeff;
         }
     }
-    result[x * GRID_SIZE + y] = sum;
+    result[x * GRID_SIZE + y] = (float)sum;
 }
 
 int convolve2d_circular(const float* d_image, int* d_roi, float* d_result_out, float* debug) {

@@ -12,15 +12,15 @@
 //#define STEP_BY_STEP_MOD
 #define DISPLAY 10
 
-#define FFT_OPTI_ENABLE
+//#define FFT_OPTI_ENABLE
 
 
 // 🌐 Grid parameters
-#define GRID_SIZE 1024        // Must be a power of 2
-#define RADIUS    (13*8)      // Neighborhood radius
+#define GRID_SIZE 256        // Must be a power of 2
+#define RADIUS    (13*4)      // Neighborhood radius
 #define DELTA_T   0.01
 
-//#define REGION_SIZE 256       // Must be greater than 2*RADIUS + 1
+#define REGION_SIZE 256       // Must be greater than 2*RADIUS + 1
 
 // Derived constants
 #ifndef REGION_SIZE
