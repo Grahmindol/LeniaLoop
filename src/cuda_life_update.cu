@@ -1,4 +1,4 @@
-#include "cuda_life_update.h"
+#include "life_updater.h"
 #include "cuda_convolve_utils.h"
 #include "config.h"
 #include <cstdio>
@@ -68,7 +68,7 @@ __global__ void update_kernel(
 // =========================================================
 //  Host Init / Destroy
 // =========================================================
-void init_cuda_update(float* h_pixels) {
+void init_updater(float* h_pixels) {
     // Allocate GPU buffers
     cudaMalloc((void**)&d_pixels, sizeof(float*) * BUFFER_NUMBER);
 
@@ -98,7 +98,7 @@ void init_cuda_update(float* h_pixels) {
     CHECK_CUDA(cudaGetLastError());
 }
 
-void destroy_cuda_update() {
+void destroy_updater() {
     for (size_t i = 0; i < BUFFER_NUMBER; i++) {
         cudaFree(h_pixel_ptrs[i]);
     }
@@ -224,7 +224,7 @@ static inline void setup_sub_region_interst(
 // =========================================================
 //  Main Update Function
 // =========================================================
-void update_life_gpu(int current, float* h_pixels_result) {
+void update_life(int current, float* h_pixels_result) {
     static int iter = 0;
 
     // --- Convolution

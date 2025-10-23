@@ -18,15 +18,14 @@ extern float* pixels;
  * @brief Initializes the Game of Life simulation.
  *
  * Allocates memory for the pixel buffer, loads an initial pattern (from a PNG
- * file, a random seed, or the built-in pattern), initializes convolution
- * kernels, and sets up the CUDA update kernels.
+ * file, a random seed, or the built-in pattern), initialize updater
  */
 void init_life();
 
 /**
  * @brief Frees resources used by the Game of Life simulation.
  *
- * Frees the pixel buffer and destroys any CUDA resources used for updating
+ * Frees the pixel buffer and destroys any resources used for updating
  * the simulation.
  */
 void destroy_life();
@@ -34,7 +33,7 @@ void destroy_life();
 /**
  * @brief Updates the simulation by one frame.
  *
- * Performs a full update of the grid state on the GPU using CUDA.
+ * Performs a full update of the grid state using the uppdater.
  *
  * @param frame Current frame number (can be used for temporal effects).
  */

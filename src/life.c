@@ -6,7 +6,7 @@
 #include <time.h>
 #include <cuda_runtime.h>
 
-#include "cuda_life_update.h"
+#include "life_updater.h"
 #include "png_util.h"
 
 // ======================================================
@@ -160,7 +160,7 @@ void init_life() {
 #endif
 
     init_kernel();
-    init_cuda_update(pixels);
+    init_updater(pixels);
 }
 
 // ======================================================
@@ -169,7 +169,7 @@ void init_life() {
 
 void destroy_life() {
     free(pixels);
-    destroy_cuda_update();
+    destroy_updater();
 }
 
 // ======================================================
@@ -181,6 +181,6 @@ void destroy_life() {
  * @param currentFrame Index du frame courant
  */
 void life_update_frame(int currentFrame) {
-    update_life_gpu(currentFrame, pixels);
+    update_life(currentFrame, pixels);
     // save_to_csv("data_pixel_center", -1, pixels[GRID_SIZE * GRID_SIZE / 2 + GRID_SIZE / 2]);
 }
